@@ -1,0 +1,96 @@
+---
+title: "Examine IRR"
+author: "Rex Macey"
+date: "January 21, 2016"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(stringr)
+library(plyr)
+library(lubridate)
+library(randomForest)
+library(reshape2)
+library(formattable)
+setwd(Sys.getenv("LENDINGCLUB_DIR"))  # this gets the LENDINGCLUB_DIR variable defined in the .rProfile file
+df<-readRDS("LoanStatsAll.rds")
+df2<-df # used for all loans
+```
+The number of loans (rows of data) is `r accounting(nrow(df),0)`.
+
+We need to consider completed loans. It's not fair to include a loan initiated 1 year ago that defaulted.
+Doing so would include bad loans from recent periods but not loans that turn out to be good.
+We filter for loans that are have a term of 3 years initiated at least 3 years ago or a term of 5 years
+initiated at least 5 years ago.
+
+```{r message=FALSE, warning=FALSE}
+max_issue_d<-max(df$issue_d,na.rm=TRUE)
+idx<- (df2$issue_d < (max_issue_d - 3) & df$term == " 36 months") | (df2$issue_d < (max_issue_d - 5) & df$term == " 60 months")
+df<-df[idx,]
+```
+
+Now we are down to a much smaller number (`r accounting(nrow(df),0)`) of loans (about `r paste0(round(100*nrow(df)/nrow(df2),1),"%")` of the entire data set).  Does it seem correct that
+LC has initiated 10x loans since these were complete.
+
+The loans have terms of either 3 or 5 years.  Below we see that 3 Year loans dominate completed loans
+```{r message=FALSE, warning=FALSE}
+tbl<-rbind(summary(df$term),round(100*summary(df$term)/nrow(df),0))[,2:3]
+rownames(tbl)<-c("Count","Pct")
+tbl
+```
+It appears LC is making many more 5 year loans now based on the table below which considers all loans.
+```{r message=FALSE, warning=FALSE}
+tbl<-rbind(summary(df2$term),round(100*summary(df2$term)/nrow(df2),0))[,2:3]
+rownames(tbl)<-c("Count","Pct")
+tbl
+```
+So a model built on completed loans only has `r accounting(summary(df$term)[3],0)` five-year loans. One may want to limit the model to three year loans.
+
+Now we turn to the status of the loans as classified by LC. First we list the status and then show how many "completed" loans fall in to each category.
+```{r message=FALSE, warning=FALSE}
+status_levels<-levels(df$loan_status)
+status_levels
+summary(df$loan_status)
+```
+It's odd that a a handful of the loans we thought would be completed are either late (4)  or in default (1).
+To be careful we only use loans with the following codes
+```{r message=FALSE, warning=FALSE}
+complete_status<-status_levels[c(2,5,7,8)]
+complete_status
+idx<-df$loan_status %in% complete_status
+df<-df[idx,]
+loan.status.dist<-data.frame(table(df$loan_status)) #distribution of by loan status
+loan.status.dist$PctTotal<-round(100*loan.status.dist$Freq/sum(loan.status.dist$Freq),1)
+loan.status.dist<-loan.status.dist[loan.status.dist$Freq>0,]
+loan.status.dist
+
+# Calculate or lookup IRR
+if (FALSE) {
+    source("IRR.R")
+    df$irr<-NA
+    for(i in 1:nrow(df)){
+        df$irr[i]<-IRR(df$total_pymnt[i],df$total_rec_late_fee[i],df$collection_recovery_fee[i],df$installment[i],df$funded_amnt[i],df$issue_d[i])
+    }
+    saveRDS(df,file=paste0(getwd(),"/","irr.rds"))    
+} else {
+    df<-readRDS(paste0(getwd(),"/","irr.rds"))
+}
+summary(df$irr) # negative skew
+boxplot(df$irr,main="Boxplot of IRR",ylab="IRR",xlab="All Observations")
+
+# IRR by loan status
+irr<-df$irr
+meanbystatus <- ddply(df, .(loan_status),summarise,
+                      MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      MedianIRR=round(100*median(irr,na.rm=T),1),
+                      Count=length(irr),
+                      FreqPct=round(100*length(irr)/length(df[,1]),1))
+print(meanbystatus)
+
+meanbygrade <- ddply(df, .(grade),summarise,
+                      MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      MedianIRR=round(100*median(irr,na.rm=T),1),
+                      Count=length(irr),
+                      FreqPct=round(100*length(irr)/length(df[,1]),1))
+print(meanbygrade)
+```
