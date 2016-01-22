@@ -93,4 +93,11 @@ meanbygrade <- ddply(df, .(grade),summarise,
                       Count=length(irr),
                       FreqPct=round(100*length(irr)/length(df[,1]),1))
 print(meanbygrade)
+
+meanbyyear <- ddply(df, .(year_issued),summarise,
+                      MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      MedianIRR=round(100*median(irr,na.rm=T),1),
+                      Count=length(irr),
+                      FreqPct=round(100*length(irr)/length(df[,1]),1))
+print(meanbyyear)
 ```

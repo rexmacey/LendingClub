@@ -201,6 +201,19 @@ print(meanbygrade)</code></pre>
 ## 5     E    -0.4      15.8  2011     3.6
 ## 6     F    -6.3      15.8   564     1.0
 ## 7     G    -5.1      18.1   281     0.5</code></pre>
+<pre class="r"><code>meanbyyear &lt;- ddply(df, .(year_issued),summarise,
+                      MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      MedianIRR=round(100*median(irr,na.rm=T),1),
+                      Count=length(irr),
+                      FreqPct=round(100*length(irr)/length(df[,1]),1))
+print(meanbyyear)</code></pre>
+<pre><code>##   year_issued MeanIRR MedianIRR Count FreqPct
+## 1        2007    -6.3       9.3   603     1.1
+## 2        2008    -3.2      10.3  2393     4.3
+## 3        2009     1.8      10.7  5281     9.4
+## 4        2010     2.6       9.5 10679    19.0
+## 5        2011     2.8       7.9 14101    25.1
+## 6        2012     2.4       9.3 23207    41.2</code></pre>
 
 
 </div>
