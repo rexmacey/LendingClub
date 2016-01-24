@@ -1,7 +1,7 @@
 ---
 title: "Examine IRR"
 author: "Rex Macey"
-date: "January 21, 2016"
+date: "January 24, 2016"
 output: html_document
 ---
 
@@ -16,6 +16,7 @@ setwd(Sys.getenv("LENDINGCLUB_DIR"))  # this gets the LENDINGCLUB_DIR variable d
 df<-readRDS("LoanStatsAll.rds")
 df2<-df # used for all loans
 ```
+(Modified 1/24/2016 to add weighted means.  Weighting is by funding amount.)
 The number of loans (rows of data) is `r accounting(nrow(df),0)`.
 
 We need to consider completed loans. It's not fair to include a loan initiated 1 year ago that defaulted.
@@ -82,6 +83,7 @@ boxplot(df$irr,main="Boxplot of IRR",ylab="IRR",xlab="All Observations")
 irr<-df$irr
 meanbystatus <- ddply(df, .(loan_status),summarise,
                       MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      WtMeanIRR=round(100*weighted.mean(irr,funded_amnt,na.rm=TRUE),1),
                       MedianIRR=round(100*median(irr,na.rm=T),1),
                       Count=length(irr),
                       FreqPct=round(100*length(irr)/length(df[,1]),1))
@@ -89,13 +91,15 @@ print(meanbystatus)
 
 meanbygrade <- ddply(df, .(grade),summarise,
                       MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      WtMeanIRR=round(100*weighted.mean(irr,funded_amnt,na.rm=TRUE),1),
                       MedianIRR=round(100*median(irr,na.rm=T),1),
                       Count=length(irr),
                       FreqPct=round(100*length(irr)/length(df[,1]),1))
 print(meanbygrade)
 
 meanbyyear <- ddply(df, .(year_issued),summarise,
-                      MeanIRR=round(100*mean(irr,na.rm=T),1),
+                      MeanIRR=round(100*mean(irr,na.rm=TRUE),1),
+                      WtMeanIRR=round(100*weighted.mean(irr,funded_amnt,na.rm=TRUE),1),
                       MedianIRR=round(100*median(irr,na.rm=T),1),
                       Count=length(irr),
                       FreqPct=round(100*length(irr)/length(df[,1]),1))
