@@ -1,0 +1,129 @@
+---
+title: "ExamineCF.rmd"
+author: "Rex Macey"
+date: "January 24, 2016"
+output: html_document
+---
+```{r message=FALSE, warning=FALSE}
+library(stringr)
+library(plyr)
+library(lubridate)
+library(randomForest)
+library(reshape2)
+library(formattable)
+setwd(Sys.getenv("LENDINGCLUB_DIR"))  # this gets the LENDINGCLUB_DIR variable defined in the .rProfile file
+df<-readRDS("LoanStatsAll.rds")
+df2<-df # used for all loans
+max_issue_d<-max(df$issue_d,na.rm=TRUE)
+idx<- (df2$issue_d < (max_issue_d - 3) & df$term == " 36 months") | (df2$issue_d < (max_issue_d - 5) & df$term == " 60 months")
+df<-df[idx,]
+```
+Let's look at cash flows to make sure we understand them.  Here are some of the relevant fields.
+
+```{r message=FALSE, warning=FALSE}
+amnt_cols<-strsplit("id,funded_amnt,funded_amnt_inv,total_pymnt,total_pymnt_inv,out_prncp,out_prncp_inv,total_rec_late_fee,installment,collection_recovery_fee,recoveries,total_rec_int,total_rec_prncp,loan_status,term,int_rate",split=",")[[1]]
+df.cf<-df[,amnt_cols]
+head(df.cf[idx,])
+```
+How does funded_amnt differ from funded_amnt_inv?
+How many are different (#/%)?
+Let's look at a few of the loans with differences, especially the larger differences.
+I think the difference is the amount of the loan funded by LC itself.  
+```{r message=FALSE, warning=FALSE}
+summary(df.cf$funded_amnt-df.cf$funded_amnt_inv) # always non-negative
+idx<-df.cf$funded_amnt>df.cf$funded_amnt_inv
+print(paste0(sum(idx)," / ",round(100*sum(idx)/nrow(df.cf),0),"%"))
+head(df.cf[idx,])
+df.cf.sort<-df.cf[order(-df.cf$funded_amnt+df.cf$funded_amnt_inv),]
+head(df.cf.sort,20)
+rm(df.cf.sort)
+```
+
+Let's look at total_pymnt v total_pymnt_inv.
+Note that total_pymnt exceeds total_pymnt_inv more often than funded_amnt exceeds funded_amnt_inv.
+Perhaps this is because LC may receive some payments that do not go to investors?
+```{r message=FALSE, warning=FALSE}
+summary(df.cf$total_pymnt-df.cf$total_pymnt_inv) # always non-negative
+idx<-df.cf$total_pymnt>df.cf$total_pymnt_inv
+print(paste0(sum(idx)," / ",round(100*sum(idx)/nrow(df.cf),0),"%"))
+```
+
+What consistutes total_pymnt?
+We can see it is total_rec_int+total_rec_prncp+total_rec_late_fee+recoveries
+```{r message=FALSE, warning=FALSE}
+x<-df.cf$total_rec_int+df.cf$total_rec_prncp+df.cf$total_rec_late_fee+df.cf$recoveries
+idx<-abs(df.cf$total_pymnt - x) > 0.01
+print(paste0(sum(idx)," / ",round(100*sum(idx)/nrow(df.cf),0),"%"))
+```
+
+What consistutes total_pymnt_inv?
+Q) Is it a simple proportion related to funded_amnt_inv/funded_amnt
+A) No, though it does a good job for more than 50% of the loans.  Errors on both sides of zero
+```{r message=FALSE, warning=FALSE}
+test<-df.cf$total_pymnt_inv - df.cf$total_pymnt * df.cf$funded_amnt_inv / df.cf$funded_amnt
+summary(test)
+df.cf.sort<-df.cf
+df.cf.sort$test<-test
+df.cf.sort<-df.cf.sort[order(-df.cf.sort$test),]
+head(df.cf.sort)
+tail(df.cf.sort)
+```
+
+Q)Are the loans with unexplained total_pymnt_inv related to loan status?
+First a summary of the status for all loans, then for those with errors
+A) All are related to charge offs, but not all charge offs are unexplained
+```{r message=FALSE, warning=FALSE}
+summary(df.cf.sort$loan_status)
+idx<-abs(df.cf.sort$test>=1) # not worried about issues less than $1
+df.unexp<-df.cf.sort[idx,]
+summary(df.unexp$loan_status)
+```
+
+Is the unexplained amount of total_pymnt_inv related to the recovery?
+Not according to the graph
+```{r message=FALSE, warning=FALSE}
+idx<-df.cf.sort$test>=1
+plot(df.cf.sort$recoveries[idx],df.cf.sort$test[idx],
+     main="Trying to explain total_pymnt_inv with recoveries",xlab="Recoveries",ylab="Unexplained")
+```
+
+If we can't exactly explain total_pymnt_inv, is that a problem?  Let's start with the hypothesis that we investors receive total_pymnt_inv and that someone else receives the rest of total_pymnt.  As long as the investors get their fair share, we can focus on total_pymnt and not total_pymnt_inv.
+
+Well sometimes they don't.
+
+```{r message=FALSE, warning=FALSE}
+inv_pct<-df.cf$funded_amnt_inv/df.cf$funded_amnt # investors % of the loan
+inv_excess<-df.cf$total_pymnt_inv - df.cf$total_pymnt*inv_pct # +/- dollars 
+summary(inv_excess)
+```
+
+Finally, let's just look at total funded v total payments. 
+```{r message=FALSE, warning=FALSE}
+paymentsbystatus <- ddply(df, .(loan_status),summarise,
+                      Funded=comma(sum(funded_amnt,na.rm=T),0),
+                      Paid=comma(sum(total_pymnt,na.rm=TRUE),0),
+                      FundedInv=comma(sum(funded_amnt_inv,na.rm=T),0),
+                      PaidInv=comma(sum(total_pymnt_inv,na.rm=TRUE),0),
+                      Count=comma(length(funded_amnt),0),
+                      FreqPct=percent(length(funded_amnt)/length(df[,1]),1))
+print(paymentsbystatus)
+
+paymentsbyyear <- ddply(df, .(year_issued),summarise,
+                      Funded=comma(sum(funded_amnt,na.rm=T),0),
+                      Paid=comma(sum(total_pymnt,na.rm=TRUE),0),
+                      FundedInv=comma(sum(funded_amnt_inv,na.rm=T),0),
+                      PaidInv=comma(sum(total_pymnt_inv,na.rm=TRUE),0),
+                      Count=comma(length(funded_amnt),0),
+                      FreqPct=percent(length(funded_amnt)/length(df[,1]),1))
+print(paymentsbyyear)
+
+paymentsbygrade <- ddply(df, .(grade),summarise,
+                      Funded=comma(sum(funded_amnt,na.rm=T),0),
+                      Paid=comma(sum(total_pymnt,na.rm=TRUE),0),
+                      FundedInv=comma(sum(funded_amnt_inv,na.rm=T),0),
+                      PaidInv=comma(sum(total_pymnt_inv,na.rm=TRUE),0),
+                      Count=comma(length(funded_amnt),0),
+                      FreqPct=percent(length(funded_amnt)/length(df[,1]),1))
+print(paymentsbygrade)
+```
+
